@@ -7,6 +7,19 @@ import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, 
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
+async function downloadFile(url: string, filename: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(await res.text().catch(()=>`HTTP ${res.status}`));
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 export default function DashboardPage({ params }: { params: { id: string } }) {
   const id = params.id;
   const [form, setForm] = useState<FormDoc | null>(null);
@@ -107,7 +120,7 @@ export default function DashboardPage({ params }: { params: { id: string } }) {
 
     timer = setTimeout(tick, 5000);
     return () => { stop = true; clearTimeout(timer); };
-  }, [id]);  
+  }, [id]);
 
   if (err) return <div className="p-6 text-red-600">{err}</div>;
   if (!form || !analytics) return <div className="p-6">Loading…</div>;
@@ -115,12 +128,31 @@ export default function DashboardPage({ params }: { params: { id: string } }) {
   const cboxField = form.fields.find(f => f.type === "checkbox");
   const cdist = cboxField ? (analytics.fields?.[cboxField.id]?.distribution ?? {}) : null;
 
-  
-
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold">Analytics — {form.title}</h1>
       <div className="text-sm text-gray-600">Total responses: {analytics.count}</div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="px-3 py-1 rounded border"
+          onClick={() => downloadFile(
+            `${API_URL}/api/forms/${id}/export?format=csv`,
+            `responses-${id}.csv`
+          )}
+        >
+          Download CSV
+        </button>
+        <button
+          className="px-3 py-1 rounded border"
+          onClick={() => downloadFile(
+            `${API_URL}/api/forms/${id}/export?format=pdf`,
+            `responses-${id}.pdf`
+          )}
+        >
+          Download PDF
+        </button>
+      </div>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="p-4 border rounded">

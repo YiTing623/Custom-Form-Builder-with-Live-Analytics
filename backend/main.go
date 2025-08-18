@@ -94,6 +94,7 @@ func main() {
 	formH := handlers.NewFormHandler(store)
 	respH := handlers.NewResponseHandler(store, broadcast)
 	analyticsH := handlers.NewAnalyticsHandler(store)
+	exportH := handlers.NewExportHandler(store)
 
 	api := app.Group("/api")
 	api.Post("/forms", formH.CreateForm)
@@ -102,6 +103,7 @@ func main() {
 
 	api.Post("/forms/:id/response", respH.SubmitResponse)
 	api.Get("/forms/:id/analytics", analyticsH.GetAnalytics)
+	api.Get("/forms/:id/export", exportH.ExportResponses)
 
 	port := os.Getenv("PORT")
 	if port == "" {
