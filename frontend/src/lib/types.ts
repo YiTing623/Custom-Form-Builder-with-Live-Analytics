@@ -25,10 +25,24 @@ export interface FormDoc {
   status: "draft" | "published";
 }
 
+export interface Trends {
+  avgRating?: number;
+  mostCommon?: Record<string, string | string[]>;
+  skipped?: Record<string, number>;
+  mostSkipped?: { id: string; label: string; skipped: number; total: number }[];
+}
+
 export interface AnalyticsSnapshot {
   formId: string;
   count: number;
-  fields: Record<string, any>;
+  fields: Record<
+    string,
+    | { type: "text"; nonEmptyCount: number }
+    | { type: "multiple"; distribution: Record<string, number> }
+    | { type: "checkbox"; distribution: Record<string, number> }
+    | { type: "rating"; distribution: Record<number, number>; average: number }
+  >;
+  trends?: Trends;
 }
 
 export interface SubmitResponseBody {

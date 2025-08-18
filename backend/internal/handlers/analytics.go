@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -40,10 +41,19 @@ func (h *AnalyticsHandler) GetAnalytics(c *fiber.Ctx) error {
 	return c.JSON(out)
 }
 
+
+type Trends struct {
+	AvgRating   float64                `json:"avgRating,omitempty"`
+	MostCommon  map[string]interface{} `json:"mostCommon,omitempty"`
+	Skipped     map[string]int         `json:"skipped,omitempty"`
+	MostSkipped []fiber.Map            `json:"mostSkipped,omitempty"` 
+}
+
 type Analytics struct {
 	FormID string                 `json:"formId"`
 	Count  int                    `json:"count"`
 	Fields map[string]interface{} `json:"fields"`
+	Trends *Trends                `json:"trends,omitempty"`
 }
 
 func computeAnalytics(ctx context.Context, store *db.MongoStore, formID string, form *models.Form) (*Analytics, error) {
@@ -59,7 +69,23 @@ func computeAnalytics(ctx context.Context, store *db.MongoStore, formID string, 
 		return nil, err
 	}
 
+	total := len(rows)
 	fields := map[string]interface{}{}
+
+	skipped := make(map[string]int)
+	mostCommon := make(map[string]interface{})
+	var globalRatingSum float64
+	var globalRatingCount int
+
+	labelOf := func(id string) string {
+		for _, f := range form.Fields {
+			if f.ID == id {
+				return f.Label
+			}
+		}
+		return id
+	}
+
 	for _, f := range form.Fields {
 		switch f.Type {
 		case models.FieldMultiple:
@@ -67,37 +93,69 @@ func computeAnalytics(ctx context.Context, store *db.MongoStore, formID string, 
 			for _, opt := range f.Options {
 				counts[opt] = 0
 			}
+			seen := 0
 			for _, r := range rows {
 				ans := r["answers"].(bson.M)
 				if v, ok := ans[f.ID]; ok {
-					if s, ok := v.(string); ok {
+					if s, ok := v.(string); ok && s != "" {
 						if _, exist := counts[s]; exist {
 							counts[s]++
 						}
+						seen++
 					}
 				}
 			}
 			fields[f.ID] = fiber.Map{"type": f.Type, "distribution": counts}
+			skipped[f.ID] = total - seen
+
+			topOpt := ""
+			topCnt := -1
+			for k, v := range counts {
+				if v > topCnt {
+					topCnt = v
+					topOpt = k
+				}
+			}
+			if topCnt >= 0 {
+				mostCommon[f.ID] = topOpt
+			}
 
 		case models.FieldCheckbox:
 			counts := map[string]int{}
 			for _, opt := range f.Options {
 				counts[opt] = 0
 			}
+			seen := 0
 			for _, r := range rows {
 				ans := r["answers"].(bson.M)
 				if v, ok := ans[f.ID]; ok {
 					arr, ok := toStringSlice(v)
-					if ok {
+					if ok && len(arr) > 0 {
 						for _, s := range arr {
 							if _, exist := counts[s]; exist {
 								counts[s]++
 							}
 						}
+						seen++
 					}
 				}
 			}
 			fields[f.ID] = fiber.Map{"type": f.Type, "distribution": counts}
+			skipped[f.ID] = total - seen
+
+			topCnt := -1
+			topOptions := []string{}
+			for k, v := range counts {
+				if v > topCnt {
+					topCnt = v
+					topOptions = []string{k}
+				} else if v == topCnt {
+					topOptions = append(topOptions, k)
+				}
+			}
+			if topCnt >= 0 {
+				mostCommon[f.ID] = topOptions
+			}
 
 		case models.FieldRating:
 			max := f.Max
@@ -128,24 +186,58 @@ func computeAnalytics(ctx context.Context, store *db.MongoStore, formID string, 
 				avg = sum / float64(n)
 			}
 			fields[f.ID] = fiber.Map{"type": f.Type, "distribution": dist, "average": avg}
+			skipped[f.ID] = total - n
+
+			globalRatingSum += sum
+			globalRatingCount += n
 
 		case models.FieldText:
-			count := 0
+			nonEmpty := 0
 			for _, r := range rows {
 				ans := r["answers"].(bson.M)
 				if v, ok := ans[f.ID]; ok {
 					if s, ok := v.(string); ok && s != "" {
-						count++
+						nonEmpty++
 					}
 				}
 			}
-			fields[f.ID] = fiber.Map{"type": f.Type, "nonEmptyCount": count}
+			fields[f.ID] = fiber.Map{"type": f.Type, "nonEmptyCount": nonEmpty}
+			skipped[f.ID] = total - nonEmpty
 		}
+	}
+
+	mostSkipped := make([]fiber.Map, 0, len(form.Fields))
+	for _, f := range form.Fields {
+		mostSkipped = append(mostSkipped, fiber.Map{
+			"id":      f.ID,
+			"label":   labelOf(f.ID),
+			"skipped": skipped[f.ID],
+			"total":   total,
+		})
+	}
+	sort.Slice(mostSkipped, func(i, j int) bool {
+		return mostSkipped[i]["skipped"].(int) > mostSkipped[j]["skipped"].(int)
+	})
+	if len(mostSkipped) > 3 {
+		mostSkipped = mostSkipped[:3]
+	}
+
+	var avgRating float64
+	if globalRatingCount > 0 {
+		avgRating = globalRatingSum / float64(globalRatingCount)
+	}
+
+	trends := &Trends{
+		AvgRating:   avgRating,
+		MostCommon:  mostCommon,
+		Skipped:     skipped,
+		MostSkipped: mostSkipped,
 	}
 
 	return &Analytics{
 		FormID: formID,
-		Count:  len(rows),
+		Count:  total,
 		Fields: fields,
+		Trends: trends,
 	}, nil
 }
