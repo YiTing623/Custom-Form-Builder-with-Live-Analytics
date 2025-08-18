@@ -9,6 +9,25 @@ const (
 	FieldRating   FieldType = "rating"
 )
 
+type ConditionOperator string
+
+const (
+	OpEq ConditionOperator = "eq"
+	OpNe ConditionOperator = "ne"
+	OpIncludes ConditionOperator = "includes"
+	OpGt ConditionOperator = "gt"
+	OpLt ConditionOperator = "lt"
+	OpGte ConditionOperator = "gte"
+	OpLte ConditionOperator = "lte"
+
+)
+
+type ShowIf struct {
+	FieldID string `bson:"fieldId" json:"fieldId"`
+	Operator ConditionOperator `bson:"op" json:"op"`
+	Value interface{} `bson:"value" json:"value"`
+}
+
 type FormField struct {
 	ID       string    `bson:"id" json:"id"`
 	Type     FieldType `bson:"type" json:"type"`
@@ -18,6 +37,7 @@ type FormField struct {
 	Options []string `bson:"options,omitempty" json:"options,omitempty"`
 
 	Max int `bson:"max,omitempty" json:"max,omitempty"`
+	ShowIf *ShowIf `bson:"showIf,omitempty"  json:"showIf,omitempty"`
 }
 
 type Form struct {

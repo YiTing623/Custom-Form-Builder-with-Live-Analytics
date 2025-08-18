@@ -1,5 +1,13 @@
 export type FieldType = "text" | "multiple" | "checkbox" | "rating";
 
+export type ConditionOperator = "eq" | "ne" | "includes" | "gt" | "gte" | "lt" | "lte";
+
+export interface ShowIf {
+  fieldId: string;
+  op: ConditionOperator;
+  value: any;
+}
+
 export interface FormField {
   id: string;
   type: FieldType;
@@ -7,6 +15,7 @@ export interface FormField {
   required?: boolean;
   options?: string[];
   max?: number;
+  showIf?: ShowIf;
 }
 
 export interface FormDoc {

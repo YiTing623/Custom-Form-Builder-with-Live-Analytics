@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"context"
-	"fmt"
-	"time"
-
 	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -44,12 +44,22 @@ func (h *ResponseHandler) SubmitResponse(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+	if body.Answers == nil {
+		body.Answers = map[string]interface{}{}
+	}
 	body.ID = uuid.NewString()
 	body.FormID = formID
 	body.Created = time.Now().Unix()
 
-	if err := validateAnswers(&form, body.Answers); err != nil {
+	visible := computeVisibility(&form, body.Answers)
+
+	if err := validateAnswers(&form, body.Answers, visible); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("validation error: %v", err))
+	}
+	for _, f := range form.Fields {
+		if !visible[f.ID] {
+			delete(body.Answers, f.ID)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
@@ -67,20 +77,117 @@ func (h *ResponseHandler) SubmitResponse(c *fiber.Ctx) error {
 			"analytics": analytics,
 		}
 		b, _ := json.Marshal(msg)
-		h.Broadcast(formID, b)		
+		h.Broadcast(formID, b)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(body)
 }
 
-func validateAnswers(form *models.Form, ans map[string]interface{}) error {
+
+func computeVisibility(form *models.Form, answers map[string]interface{}) map[string]bool {
+	vis := make(map[string]bool, len(form.Fields))
 	for _, f := range form.Fields {
+		if f.ShowIf == nil {
+			vis[f.ID] = true
+			continue
+		}
+		vis[f.ID] = evalCondition(f.ShowIf, answers)
+	}
+	return vis
+}
+
+func evalCondition(cond *models.ShowIf, answers map[string]interface{}) bool {
+	if cond == nil || cond.FieldID == "" {
+		return true
+	}
+	v, ok := answers[cond.FieldID]
+	if !ok {
+		return false
+	}
+	switch cond.Operator {
+	case models.OpEq:
+		return equalVal(v, cond.Value)
+	case models.OpNe:
+		return !equalVal(v, cond.Value)
+	case models.OpIncludes:
+		return arrIncludes(v, cond.Value)
+	case models.OpGt, models.OpGte, models.OpLt, models.OpLte:
+		return numericCompare(v, cond.Value, string(cond.Operator))
+	default:
+		return false
+	}
+}
+
+func equalVal(a, b interface{}) bool {
+	as, aok := a.(string)
+	bs, bok := b.(string)
+	if aok && bok {
+		return strings.TrimSpace(as) == strings.TrimSpace(bs)
+	}
+	af, okA := toFloat64(a)
+	bf, okB := toFloat64(b)
+	if okA && okB {
+		return af == bf
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+func arrIncludes(arr interface{}, needle interface{}) bool {
+	switch x := arr.(type) {
+	case []string:
+		ns := fmt.Sprintf("%v", needle)
+		for _, e := range x {
+			if e == ns {
+				return true
+			}
+		}
+		return false
+	case []interface{}:
+		ns := fmt.Sprintf("%v", needle)
+		for _, e := range x {
+			if fmt.Sprintf("%v", e) == ns {
+				return true
+			}
+		}
+		return false
+	default:
+		return equalVal(arr, needle)
+	}
+}
+
+func numericCompare(a, b interface{}, op string) bool {
+	af, ok1 := toFloat64(a)
+	bf, ok2 := toFloat64(b)
+	if !ok1 || !ok2 {
+		return false
+	}
+	switch op {
+	case "gt":
+		return af > bf
+	case "gte":
+		return af >= bf
+	case "lt":
+		return af < bf
+	case "lte":
+		return af <= bf
+	default:
+		return false
+	}
+}
+
+
+func validateAnswers(form *models.Form, ans map[string]interface{}, visible map[string]bool) error {
+	for _, f := range form.Fields {
+		vis := visible[f.ID]
 		v, ok := ans[f.ID]
 
-		if f.Required && (!ok || isEmpty(v)) {
+		if vis && f.Required && (!ok || isEmpty(v)) {
 			return fmt.Errorf("field '%s' is required", f.ID)
 		}
 		if !ok {
+			continue
+		}
+		if !vis {
 			continue
 		}
 
@@ -176,23 +283,14 @@ func toFloat64(v interface{}) (float64, bool) {
 		return n, true
 	case float32:
 		return float64(n), true
-	case int, int32, int64:
-		return float64(toInt64(n)), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
 	default:
 		return 0, false
-	}
-}
-
-func toInt64(v interface{}) int64 {
-	switch i := v.(type) {
-	case int:
-		return int64(i)
-	case int32:
-		return int64(i)
-	case int64:
-		return i
-	default:
-		return 0
 	}
 }
 

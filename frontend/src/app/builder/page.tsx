@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { createForm, updateForm } from "@/lib/forms";
-import type { FieldType, FormDoc, FormField } from "@/lib/types";
+import type { FieldType, FormDoc, FormField, ShowIf, ConditionOperator } from "@/lib/types";
 import { uid } from "@/lib/util";
 
 function ShareRow({ label, path }: { label: string; path: string }) {
@@ -89,6 +89,19 @@ export default function BuilderPage() {
     setFields((list) => list.map(f => f.key === k ? { ...f, ...patch } : f));
   };
 
+  const updateShowIf = (k: string, patch: Partial<ShowIf> | null) => {
+    setFields((list) => list.map(f => {
+      if (f.key !== k) return f;
+      if (patch === null) {
+        const { showIf, ...rest } = f as any;
+        delete (rest as any).showIf;
+        return { ...rest } as EditField;
+      }
+      const next: ShowIf = { fieldId: "", op: "eq", value: "", ...(f.showIf || {}), ...patch };
+      return { ...f, showIf: next };
+    }));
+  };
+
   const removeField = (k: string) => setFields((list) => list.filter(f => f.key !== k));
 
   const canSave = useMemo(() => {
@@ -97,6 +110,15 @@ export default function BuilderPage() {
       if (!f.label?.trim() || !f.id?.trim()) return false;
       if ((f.type === "multiple" || f.type === "checkbox") && (!f.options || f.options.length === 0)) return false;
       if (f.type === "rating" && (f.max ?? 0) <= 0) return false;
+
+      if (f.showIf) {
+        // depends-on must exist and be earlier than this field
+        const idxSelf = fields.findIndex(x => x.key === f.key);
+        const idxDep = fields.findIndex(x => x.id === f.showIf!.fieldId);
+        if (idxDep === -1 || idxDep >= idxSelf) return false;
+        const okOps: ConditionOperator[] = ["eq", "ne", "includes", "gt", "gte", "lt", "lte"];
+        if (!okOps.includes(f.showIf.op)) return false;
+      }
     }
     return fields.length > 0;
   }, [title, fields]);
@@ -118,6 +140,17 @@ export default function BuilderPage() {
       setSaving(false);
     }
   }, [title, status, fields, formId]);
+
+  const dependencyChoices = (selfIdx: number) => fields.slice(0, selfIdx);
+  const operatorChoices: { value: ConditionOperator; label: string }[] = [
+    { value: "eq", label: "equals" },
+    { value: "ne", label: "not equals" },
+    { value: "includes", label: "includes (checkbox)" },
+    { value: "gt", label: ">" },
+    { value: "gte", label: ">=" },
+    { value: "lt", label: "<" },
+    { value: "lte", label: "<=" },
+  ];
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -203,6 +236,63 @@ export default function BuilderPage() {
                        onChange={e=>updateField(f.key, { options: e.target.value.split(",").map(s=>s.trim()).filter(Boolean) })}/>
               </div>
             )}
+
+            {/* Conditional display */}
+            <div className="mt-4 rounded border p-3 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="font-medium text-sm">Conditional display</div>
+                {f.showIf ? (
+                  <button className="text-sm text-red-600" onClick={()=>updateShowIf(f.key, null)}>
+                    Remove condition
+                  </button>
+                ) : (
+                  <button className="text-sm" onClick={()=>updateShowIf(f.key, { fieldId: "", op: "eq", value: "" })}>
+                    + Add condition
+                  </button>
+                )}
+              </div>
+
+              {f.showIf && (
+                <div className="grid sm:grid-cols-3 gap-3 mt-3">
+                  <div>
+                    <label className="block text-sm font-medium">Depends on</label>
+                    <select
+                      className="w-full border rounded px-2 py-2"
+                      value={f.showIf.fieldId}
+                      onChange={e=>updateShowIf(f.key, { fieldId: e.target.value })}
+                    >
+                      <option value="">(choose a previous question)</option>
+                      {dependencyChoices(idx).map(df => (
+                        <option key={df.key} value={df.id}>{df.label} ({df.id})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Operator</label>
+                    <select
+                      className="w-full border rounded px-2 py-2"
+                      value={f.showIf.op}
+                      onChange={e=>updateShowIf(f.key, { op: e.target.value as ConditionOperator })}
+                    >
+                      {operatorChoices.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Value</label>
+                    <input
+                      className="w-full border rounded px-3 py-2"
+                      value={String(f.showIf.value ?? "")}
+                      onChange={e=>updateShowIf(f.key, { value: e.target.value })}
+                      placeholder="e.g., Yes, 5, UX"
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-2">
+                Example: “Show this field only if the answer to <em>Depends on</em> matches the chosen operator/value.
+                Use <em>includes</em> for checkbox arrays.”
+              </p>
+            </div>
           </div>
         ))}
       </div>
