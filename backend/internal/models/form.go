@@ -45,11 +45,21 @@ type Form struct {
 	Title  string      `bson:"title" json:"title"`
 	Fields []FormField `bson:"fields" json:"fields"`
 	Status string      `bson:"status" json:"status"`
+	OwnerID string      `bson:"ownerId" json:"ownerId"`
 }
 
 type Response struct {
 	ID      string                 `bson:"_id" json:"id"`
 	FormID  string                 `bson:"formId" json:"formId"`
+	UserID  string                 `bson:"userId,omitempty" json:"userId,omitempty"`
 	Answers map[string]interface{} `bson:"answers" json:"answers"`
 	Created int64                  `bson:"created" json:"created"`
+}
+
+type User struct {
+	ID           string `bson:"_id"         json:"id"`
+	Email        string `bson:"email"       json:"email"`
+	Name         string `bson:"name"        json:"name"`
+	PasswordHash []byte `bson:"passwordHash" json:"-"`
+	Created      int64  `bson:"created"     json:"created"`
 }

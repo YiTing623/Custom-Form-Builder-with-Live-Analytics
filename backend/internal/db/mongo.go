@@ -16,6 +16,7 @@ type MongoStore struct {
 	DB        *mongo.Database
 	Forms     *mongo.Collection
 	Responses *mongo.Collection
+	Users     *mongo.Collection
 }
 
 func NewMongoStore() (*MongoStore, error) {
@@ -35,7 +36,6 @@ func NewMongoStore() (*MongoStore, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	if err := client.Ping(ctx, nil); err != nil {
 		return nil, err
 	}
@@ -46,15 +46,26 @@ func NewMongoStore() (*MongoStore, error) {
 		DB:        db,
 		Forms:     db.Collection("forms"),
 		Responses: db.Collection("responses"),
+		Users:     db.Collection("users"),
 	}
 
 	_, _ = store.Forms.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "_id", Value: 1}},
 		Options: options.Index().SetUnique(true).SetBackground(true),
 	})
+	_, _ = store.Forms.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "ownerId", Value: 1}},
+		Options: options.Index().SetBackground(true),
+	})
+
 	_, _ = store.Responses.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "formId", Value: 1}, {Key: "created", Value: -1}},
 		Options: options.Index().SetBackground(true),
+	})
+
+	_, _ = store.Users.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "email", Value: 1}},
+		Options: options.Index().SetUnique(true).SetBackground(true),
 	})
 
 	log.Printf("connected to MongoDB: %s / db: %s", uri, dbName)

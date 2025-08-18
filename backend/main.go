@@ -13,6 +13,7 @@ import (
 
 	"github.com/YiTing623/Custom-Form-Builder-with-Live-Analytics/internal/db"
 	"github.com/YiTing623/Custom-Form-Builder-with-Live-Analytics/internal/handlers"
+	"github.com/YiTing623/Custom-Form-Builder-with-Live-Analytics/internal/middleware"
 	"github.com/YiTing623/Custom-Form-Builder-with-Live-Analytics/internal/ws"
 )
 
@@ -33,7 +34,8 @@ func main() {
 
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET,POST,PUT,OPTIONS",
 	}))
 
 	app.Get("/api/health", func(c *fiber.Ctx) error { return c.SendString("ok") })
@@ -96,14 +98,28 @@ func main() {
 	analyticsH := handlers.NewAnalyticsHandler(store)
 	exportH := handlers.NewExportHandler(store)
 
-	api := app.Group("/api")
-	api.Post("/forms", formH.CreateForm)
-	api.Get("/forms/:id", formH.GetForm)
-	api.Put("/forms/:id", formH.UpdateForm)
+	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+	if len(jwtSecret) == 0 {
+		jwtSecret = []byte("dev_change_me")
+	}
+	authH := handlers.NewAuthHandler(store, jwtSecret)
 
-	api.Post("/forms/:id/response", respH.SubmitResponse)
-	api.Get("/forms/:id/analytics", analyticsH.GetAnalytics)
-	api.Get("/forms/:id/export", exportH.ExportResponses)
+	api := app.Group("/api")
+
+	api.Post("/auth/register", authH.Register)
+	api.Post("/auth/login", authH.Login)
+
+	public := api.Group("", middleware.AuthOptional(jwtSecret))
+	public.Get("/forms/:id", formH.GetForm)
+	public.Get("/forms/:id/analytics", analyticsH.GetAnalytics)
+	public.Get("/forms/:id/export", exportH.ExportResponses)
+	public.Post("/forms/:id/response", respH.SubmitResponse)
+
+	priv := api.Group("", middleware.AuthRequired(jwtSecret))
+	priv.Get("/me", authH.Me)
+	priv.Get("/my/forms", formH.ListMyForms)
+	priv.Post("/forms", formH.CreateForm)
+	priv.Put("/forms/:id", formH.UpdateForm)
 
 	port := os.Getenv("PORT")
 	if port == "" {
