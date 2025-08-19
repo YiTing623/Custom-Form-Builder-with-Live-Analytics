@@ -1,6 +1,8 @@
 module github.com/YiTing623/Custom-Form-Builder-with-Live-Analytics
 
-go 1.24.4
+go 1.23.0
+
+toolchain go1.24.4
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.9
