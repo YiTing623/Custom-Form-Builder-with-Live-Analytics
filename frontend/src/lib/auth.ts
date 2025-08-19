@@ -1,18 +1,36 @@
 import { API_URL } from "./api";
 
 const TOKEN_KEY = "token";
+const AUTH_EVENT = "auth-changed";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem("token");
 }
-export function setToken(t: string) {
+
+export function setToken(token: string) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, t);
+  localStorage.setItem("token", token);
+  window.dispatchEvent(new Event(AUTH_EVENT));
 }
+
 export function clearToken() {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem("token");
+  window.dispatchEvent(new Event(AUTH_EVENT));
+}
+
+export function onAuthChanged(handler: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(AUTH_EVENT, handler);
+  const storageHandler = (e: StorageEvent) => {
+    if (e.key === "token") handler();
+  };
+  window.addEventListener("storage", storageHandler);
+  return () => {
+    window.removeEventListener(AUTH_EVENT, handler);
+    window.removeEventListener("storage", storageHandler);
+  };
 }
 
 export function authHeaders(): Record<string, string> {
